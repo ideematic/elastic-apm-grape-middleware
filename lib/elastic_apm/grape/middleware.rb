@@ -11,20 +11,19 @@ module ElasticAPM
       # rubocop:disable Metrics/MethodLength
       def call(env)
         begin
-          route_name = env['api.endpoint']&.routes&.first&.pattern&.origin || env['REQUEST_PATH']
-          transaction_name = [env['REQUEST_METHOD'], route_name].join(' ')
+          transaction_name = env['grape.routing_args'][:route_info].pattern.origin
 
           transaction = ElasticAPM.transaction transaction_name, 'app',
             context: ElasticAPM.build_context(env)
 
           resp = @app.call env
 
-          transaction.submit(resp[0], headers: resp[1]) if transaction
+          transaction.submit('success', status: resp.status, :headers => resp.headers) if transaction
         rescue InternalError
           raise # Don't report ElasticAPM errors
         rescue ::Exception => e
           ElasticAPM.report(e, handled: false)
-          transaction.submit(500) if transaction
+          transaction.submit('error', status: 500) if transaction
           raise
         ensure
           transaction.release if transaction
