@@ -1,37 +1,20 @@
 # frozen_string_literal: true
 # Source: https://github.com/elastic/apm-agent-ruby/blob/master/lib/elastic_apm/middleware.rb
+require 'grape'
 
 module ElasticAPM
   module Grape
-    class Middleware
-      def initialize(app)
-        @app = app
-      end
-
-      # rubocop:disable Metrics/MethodLength
+    class Middleware < ::Grape::Middleware::Base
       def call(env)
-        begin
-          transaction_name = env['grape.routing_args'][:route_info].pattern.origin
+        resp = nil
+        route_name = env['api.endpoint']&.routes&.first&.pattern&.origin || env['REQUEST_PATH']
+        span_name = [env['REQUEST_METHOD'], route_name].join(' ')
 
-          transaction = ElasticAPM.transaction transaction_name, 'app',
-            context: ElasticAPM.build_context(env)
-
+        ElasticAPM.span span_name, 'app.api.request', context: ElasticAPM.build_context(env), include_stacktrace: false do
           resp = @app.call env
-
-          transaction.submit('success', status: resp.status, :headers => resp.headers) if transaction
-        rescue InternalError
-          raise # Don't report ElasticAPM errors
-        rescue ::Exception => e
-          ElasticAPM.report(e, handled: false)
-          transaction.submit('error', status: 500) if transaction
-          raise
-        ensure
-          transaction.release if transaction
         end
-
         resp
       end
-      # rubocop:enable Metrics/MethodLength
     end
   end
 end
